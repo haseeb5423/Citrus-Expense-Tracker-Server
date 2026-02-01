@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
+import { logger } from './utils/logger.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { apiLimiter } from './middleware/rateLimiter.js';
 
 dotenv.config();
 
@@ -56,6 +59,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// Request logging
+app.use(logger.requestLogger());
+
+// Rate limiting for API routes
+app.use('/api', apiLimiter);
+
 /* ================================
    VIEW ENGINE
 ================================ */
@@ -67,29 +76,37 @@ app.set('views', path.join(__dirname, '../views'));
    DATABASE CONNECTION
 ================================ */
 
-console.log('Attempting MongoDB connection...');
+logger.info('Attempting MongoDB connection...');
 
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch((err) => console.error('MongoDB Connection Error:', err));
+  .then(() => logger.info('✓ MongoDB Connected Successfully'))
+  .catch((err) => {
+    logger.error('MongoDB Connection Error:', { error: err.message });
+    process.exit(1);
+  });
 
 mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected:', process.env.MONGO_URI);
+  logger.info('Mongoose connected to database');
 });
 
 mongoose.connection.on('error', (err) => {
-  console.error('Mongoose error:', err);
+  logger.error('Mongoose connection error:', { error: err.message });
 });
 
 mongoose.connection.on('disconnected', () => {
-  console.log('Mongoose disconnected');
+  logger.warn('Mongoose disconnected from database');
 });
 
 process.on('SIGINT', async () => {
   await mongoose.connection.close();
-  console.log('Mongoose closed on app termination');
+  logger.info('Mongoose connection closed due to application termination');
   process.exit(0);
+});
+
+process.on('unhandledRejection', (err) => {
+  logger.error('Unhandled Promise Rejection:', { error: err.message, stack: err.stack });
+  process.exit(1);
 });
 
 /* ================================
@@ -115,10 +132,36 @@ app.get('/', (req, res) => {
   res.redirect('/status');
 });
 
+// Health check endpoint  
+app.get('/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    environment: process.env.NODE_ENV || 'development'
+  };
+  
+  res.status(200).json(health);
+});
+
+/* ================================
+   ERROR HANDLING
+================================ */
+
+// 404 handler - must be after all routes
+app.use(notFoundHandler);
+
+// Global error handler - must be last
+app.use(errorHandler);
+
 /* ================================
    SERVER START
 ================================ */
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  logger.info(`🚀 Server running on port ${PORT}`, {
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT
+  });
 });

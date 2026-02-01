@@ -2,20 +2,35 @@ import express from 'express';
 import { Account } from '../models/Account.js';
 import { Transaction } from '../models/Transaction.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { validateTransaction, validateAccount } from '../middleware/validation.js';
 
 const router = express.Router();
 
-// Get Initial Data
-router.get('/data', protect, async (req, res) => {
-  try {
-    const accounts = await Account.find({ user: req.user._id });
-    const transactions = await Transaction.find({ user: req.user._id }).sort({ date: -1 });
-    res.json({ accounts, transactions });
-  } catch (error) {
-    console.error('Data Fetch Error:', error);
-    res.status(500).json({ message: 'Error fetching data', error: error.message });
-  }
-});
+// Get Initial Data with pagination support
+router.get('/data', protect, asyncHandler(async (req, res) => {
+  const { page = 1, limit = 100 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  
+  const [accounts, transactions, totalTransactions] = await Promise.all([
+    Account.find({ user: req.user._id }).sort({ createdAt: -1 }),
+    Transaction.find({ user: req.user._id })
+      .sort({ date: -1 })
+      .limit(parseInt(limit))
+      .skip(skip),
+    Transaction.countDocuments({ user: req.user._id })
+  ]);
+  
+  res.json({ 
+    accounts, 
+    transactions,
+    pagination: {
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalTransactions / parseInt(limit)),
+      totalTransactions
+    }
+  });
+}));
 
 // Sync Strategy: Import Local Data
 router.post('/sync', protect, async (req, res) => {
@@ -66,61 +81,52 @@ router.post('/sync', protect, async (req, res) => {
 });
 
 // Accounts CRUD
-router.post('/accounts', protect, async (req, res) => {
-  try {
-    const account = await Account.create({ ...req.body, user: req.user._id });
-    res.status(201).json(account);
-  } catch (error) {
-    console.error('Account Create Error:', error);
-    res.status(400).json({ message: 'Error creating account', error: error.message });
-  }
-});
+router.post('/accounts', protect, validateAccount, asyncHandler(async (req, res) => {
+  const account = await Account.create({ ...req.body, user: req.user._id });
+  res.status(201).json(account);
+}));
 
-router.put('/accounts/:id', protect, async (req, res) => {
-  try {
-    const account = await Account.findOneAndUpdate(
-      { _id: req.params.id, user: req.user._id },
-      req.body,
-      { new: true }
-    );
-    if (!account) return res.status(404).json({ message: 'Account not found' });
-    res.json(account);
-  } catch (error) {
-    console.error('Account Update Error:', error);
-    res.status(400).json({ message: 'Error updating account', error: error.message });
+router.put('/accounts/:id', protect, validateAccount, asyncHandler(async (req, res) => {
+  const account = await Account.findOneAndUpdate(
+    { _id: req.params.id, user: req.user._id },
+    req.body,
+    { new: true, runValidators: true }
+  );
+  if (!account) {
+    return res.status(404).json({ message: 'Account not found' });
   }
-});
+  res.json(account);
+}));
 
-router.delete('/accounts/:id', protect, async (req, res) => {
-  try {
-    await Account.findOneAndDelete({ _id: req.params.id, user: req.user._id });
-    await Transaction.deleteMany({ accountId: req.params.id, user: req.user._id });
-    res.json({ message: 'Account deleted' });
-  } catch (error) {
-    console.error('Account Delete Error:', error);
-    res.status(400).json({ message: 'Error deleting account', error: error.message });
+router.delete('/accounts/:id', protect, asyncHandler(async (req, res) => {
+  const account = await Account.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+  if (!account) {
+    return res.status(404).json({ message: 'Account not found' });
   }
-});
+  await Transaction.deleteMany({ accountId: req.params.id, user: req.user._id });
+  res.json({ message: 'Account deleted successfully' });
+}));
 
 // Transactions CRUD
-router.post('/transactions', protect, async (req, res) => {
-  try {
-    const transaction = await Transaction.create({ ...req.body, user: req.user._id });
-    
-    // Update Account Balance
-    const account = await Account.findOne({ _id: req.body.accountId, user: req.user._id });
-    if (account) {
-      if (transaction.type === 'income') account.balance += transaction.amount;
-      else account.balance -= transaction.amount;
-      await account.save();
-    }
-
-    res.status(201).json(transaction);
-  } catch (error) {
-    console.error('Transaction Create Error:', error);
-    res.status(400).json({ message: 'Error creating transaction', error: error.message });
+router.post('/transactions', protect, validateTransaction, asyncHandler(async (req, res) => {
+  // Verify account belongs to user
+  const account = await Account.findOne({ _id: req.body.accountId, user: req.user._id });
+  if (!account) {
+    return res.status(404).json({ message: 'Account not found' });
   }
-});
+  
+  const transaction = await Transaction.create({ ...req.body, user: req.user._id });
+  
+  // Update Account Balance
+  if (transaction.type === 'income') {
+    account.balance += transaction.amount;
+  } else {
+    account.balance -= transaction.amount;
+  }
+  await account.save();
+
+  res.status(201).json(transaction);
+}));
 
 router.put('/transactions/:id', protect, async (req, res) => {
   // Updated transaction endpoint with proper validation

@@ -2,6 +2,9 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { authLimiter } from '../middleware/rateLimiter.js';
+import { validateRegistration, validateLogin } from '../middleware/validation.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
@@ -31,36 +34,29 @@ const sendTokenResponse = (user, statusCode, res) => {
     });
 };
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, validateRegistration, asyncHandler(async (req, res) => {
   const { name, email, password } = req.body;
 
-  try {
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    const user = await User.create({ name, email, password });
-    sendTokenResponse(user, 201, res);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+  const userExists = await User.findOne({ email });
+  if (userExists) {
+    return res.status(400).json({ message: 'User already exists with this email' });
   }
-});
 
-router.post('/login', async (req, res) => {
+  const user = await User.create({ name, email, password });
+  sendTokenResponse(user, 201, res);
+}));
+
+router.post('/login', authLimiter, validateLogin, asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  try {
-    const user = await User.findOne({ email });
-    if (user && (await user.matchPassword(password))) {
-      sendTokenResponse(user, 200, res);
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+  const user = await User.findOne({ email }).select('+password');
+  
+  if (!user || !(await user.matchPassword(password))) {
+    return res.status(401).json({ message: 'Invalid email or password' });
   }
-});
+
+  sendTokenResponse(user, 200, res);
+}));
 
 router.post('/logout', (req, res) => {
   res.cookie('token', 'none', {
@@ -70,8 +66,8 @@ router.post('/logout', (req, res) => {
   res.status(200).json({ success: true, data: {} });
 });
 
-router.get('/me', protect, async (req, res) => {
+router.get('/me', protect, asyncHandler(async (req, res) => {
   res.json(req.user);
-});
+}));
 
 export default router;
