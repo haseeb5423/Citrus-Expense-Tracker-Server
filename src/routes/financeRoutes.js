@@ -13,7 +13,7 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
   const { page = 1, limit = 100 } = req.query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
   
-  const [accounts, transactions, totalTransactions] = await Promise.all([
+  const [accounts, transactions, totalTransactions, accountTypes] = await Promise.all([
     Account.find({ user: req.user._id }).sort({ createdAt: -1 }),
     Transaction.find({ user: req.user._id })
       .sort({ date: -1 })
@@ -26,11 +26,12 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
   res.json({ 
     accounts, 
     transactions,
-    accountTypes: totalTransactions[3], // Promise.all result index adjusted
+    transactions,
+    accountTypes: accountTypes || [],
     pagination: {
       currentPage: parseInt(page),
       totalPages: Math.ceil(totalTransactions / parseInt(limit)),
-      totalTransactions: totalTransactions[2]
+      totalTransactions: totalTransactions
     }
   });
 }));
