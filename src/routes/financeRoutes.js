@@ -1,6 +1,7 @@
 import express from 'express';
 import { Account } from '../models/Account.js';
 import { Transaction } from '../models/Transaction.js';
+import { AccountType } from '../models/AccountType.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateTransaction, validateAccount } from '../middleware/validation.js';
@@ -18,27 +19,50 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
       .sort({ date: -1 })
       .limit(parseInt(limit))
       .skip(skip),
-    Transaction.countDocuments({ user: req.user._id })
+    Transaction.countDocuments({ user: req.user._id }),
+    AccountType.find({ user: req.user._id }).sort({ label: 1 })
   ]);
   
   res.json({ 
     accounts, 
     transactions,
+    accountTypes: totalTransactions[3], // Promise.all result index adjusted
     pagination: {
       currentPage: parseInt(page),
       totalPages: Math.ceil(totalTransactions / parseInt(limit)),
-      totalTransactions
+      totalTransactions: totalTransactions[2]
     }
   });
 }));
 
 // Sync Strategy: Import Local Data
 router.post('/sync', protect, async (req, res) => {
-  const { accounts, transactions } = req.body;
+  const { accounts, transactions, accountTypes } = req.body;
   const userId = req.user._id;
 
   try {
     const accountMap = {}; // Map localId -> dbId
+
+    // 0. Sync Account Types (Prevent duplicates)
+    if (accountTypes && Array.isArray(accountTypes)) {
+      for (const type of accountTypes) {
+        // Skip default types (usually those have specific IDs or handled by client logic, 
+        // but here we just check label duplication)
+        const exists = await AccountType.findOne({ user: userId, label: type.label });
+        if (!exists) {
+          try {
+             await AccountType.create({
+               user: userId,
+               label: type.label,
+               theme: type.theme
+             });
+          } catch (e) {
+             // Ignore duplicate key errors just in case race condition
+             console.log("Skipping duplicate type:", type.label);
+          }
+        }
+      }
+    }
 
     // 1. Create or Find Accounts
     for (const acc of accounts) {
@@ -322,6 +346,33 @@ router.delete('/reset', protect, async (req, res) => {
 });
 
 // Delete single transaction by ID - MUST come after specific routes
+// Account Types CRUD
+router.post('/account-types', protect, asyncHandler(async (req, res) => {
+  const { label, theme } = req.body;
+  
+  // Check duplicate
+  const exists = await AccountType.findOne({ user: req.user._id, label });
+  if (exists) {
+    return res.status(400).json({ message: 'Account type with this label already exists' });
+  }
+
+  const accountType = await AccountType.create({
+    user: req.user._id,
+    label,
+    theme
+  });
+  
+  res.status(201).json(accountType);
+}));
+
+router.delete('/account-types/:id', protect, asyncHandler(async (req, res) => {
+  const result = await AccountType.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+  if (!result) {
+    return res.status(404).json({ message: 'Account type not found' });
+  }
+  res.json({ message: 'Account type deleted' });
+}));
+
 router.delete('/transactions/:id', protect, async (req, res) => {
   try {
     const tx = await Transaction.findOneAndDelete({ _id: req.params.id, user: req.user._id });
