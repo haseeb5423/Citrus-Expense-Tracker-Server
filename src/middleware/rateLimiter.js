@@ -56,6 +56,6 @@ const createRateLimiter = (windowMs = 15 * 60 * 1000, maxRequests = 100) => {
 
 // Different rate limiters for different endpoints
 // Different rate limiters for different endpoints
-export const authLimiter = createRateLimiter(15 * 60 * 1000, 20); // 20 requests per 15 minutes for auth (login/register)
-export const apiLimiter = createRateLimiter(15 * 60 * 1000, 300); // 300 requests per 15 minutes for general API
-export const strictLimiter = createRateLimiter(60 * 1000, 10); // 10 requests per minute for sensitive operations
+export const authLimiter = createRateLimiter(15 * 60 * 1000, 100); // 100 requests per 15 minutes for auth (login/register) - Relaxed for UX
+export const apiLimiter = createRateLimiter(15 * 60 * 1000, 1000); // 1000 requests per 15 minutes for general API - Relaxed for chatty frontend
+export const strictLimiter = createRateLimiter(60 * 1000, 60); // 60 requests per minute for sensitive operations
