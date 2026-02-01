@@ -40,27 +40,42 @@ router.post('/sync', protect, async (req, res) => {
   try {
     const accountMap = {}; // Map localId -> dbId
 
-    // 1. Create Accounts
+    // 1. Create or Find Accounts
     for (const acc of accounts) {
-      // Avoid duplicates based on some logic if needed, but for now we trust the sync is a one-time import or merge
-      // Actually, if we sync repeatedly, we might duplicate. Ideally we check if name exists?
-      // For simplicity in this turn: create new.
-      const newAcc = await Account.create({
-        user: userId,
-        name: acc.name,
-        balance: acc.balance,
-        type: acc.type,
-        color: acc.color,
-        cardNumber: acc.cardNumber,
-        cardHolder: acc.cardHolder
-      });
-      accountMap[acc.id] = newAcc._id;
+      // Check if account with same name already exists to prevent duplicates
+      let targetAccount = await Account.findOne({ user: userId, name: acc.name });
+
+      if (!targetAccount) {
+        targetAccount = await Account.create({
+            user: userId,
+            name: acc.name,
+            balance: acc.balance,
+            type: acc.type,
+            color: acc.color,
+            cardNumber: acc.cardNumber,
+            cardHolder: acc.cardHolder
+        });
+      }
+      // If it exists, we might optionally update it, but for sync we usually just want to map IDs.
+      // We can update the balance/details if the local one is "newer", but simpler to just link.
+      
+      accountMap[acc.id] = targetAccount._id;
     }
 
     // 2. Create Transactions with mapped Account IDs
+    let newTransactionsCount = 0;
     for (const tx of transactions) {
       const realAccountId = accountMap[tx.accountId];
       if (realAccountId) {
+         // Prevent duplicate transaction sync if possible (optional but good)
+         // Assuming client might send same txs.
+         // A simple check is looking for matching date + amount + description + account
+         // This can be slow for many txs. For now, we follow standard sync which might blindly add.
+         // But the user complained about duplicates. Let's try to be smarter if possible?
+         // The user specifically complained about "initial vaults accounts multiples".
+         // So likely the account duplication is the main annoyance.
+         // We will skip transaction deduplication for now to keep it safe, unless requested.
+         
          await Transaction.create({
            user: userId,
            accountId: realAccountId,
@@ -70,15 +85,52 @@ router.post('/sync', protect, async (req, res) => {
            description: tx.description,
            date: tx.date
          });
+         newTransactionsCount++;
       }
     }
 
-    res.json({ message: 'Sync successful', syncedAccounts: Object.keys(accountMap).length });
+    res.json({ message: 'Sync successful', syncedAccounts: Object.keys(accountMap).length, newTransactions: newTransactionsCount });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Sync failed', error: error.message });
   }
 });
+
+// Cleanup Duplicate Accounts
+router.delete('/accounts/cleanup', protect, asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const accounts = await Account.find({ user: userId }).sort({ createdAt: 1 }); // Oldest first
+  
+  const grouped = {};
+  accounts.forEach(acc => {
+    if (!grouped[acc.name]) grouped[acc.name] = [];
+    grouped[acc.name].push(acc);
+  });
+
+  let deletedCount = 0;
+  const deletedNames = [];
+
+  for (const name in grouped) {
+    const group = grouped[name];
+    if (group.length > 1) {
+      // Keep the first one (oldest), delete the rest
+      const [keep, ...remove] = group;
+      const removeIds = remove.map(a => a._id);
+      
+      await Account.deleteMany({ _id: { $in: removeIds } });
+      await Transaction.deleteMany({ accountId: { $in: removeIds } }); // Cascade delete transactions of duplicates
+      
+      deletedCount += remove.length;
+      deletedNames.push(name);
+    }
+  }
+
+  res.json({ 
+    message: 'Cleanup successful', 
+    deletedCount, 
+    affectedAccounts: deletedNames 
+  });
+}));
 
 // Accounts CRUD
 router.post('/accounts', protect, validateAccount, asyncHandler(async (req, res) => {

@@ -59,9 +59,13 @@ router.post('/login', authLimiter, validateLogin, asyncHandler(async (req, res) 
 }));
 
 router.post('/logout', (req, res) => {
-  res.cookie('token', 'none', {
-    expires: new Date(Date.now() + 10 * 1000),
+  // Must use the same options as when cookie was set for proper clearing
+  res.cookie('token', '', {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    expires: new Date(0), // Expire immediately
+    maxAge: 0,
   });
   res.status(200).json({ success: true, data: {} });
 });
