@@ -16,8 +16,7 @@ const accountSchema = new mongoose.Schema({
   balance: { 
     type: Number, 
     required: [true, 'Balance is required'], 
-    default: 0,
-    min: [0, 'Balance cannot be negative']
+    default: 0
   },
   type: { 
     type: String, 
