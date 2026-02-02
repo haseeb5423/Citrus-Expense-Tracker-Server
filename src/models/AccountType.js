@@ -15,7 +15,7 @@ const accountTypeSchema = new mongoose.Schema({
   theme: {
     type: String,
     required: [true, 'Theme color is required'],
-    enum: ['blue', 'emerald', 'orange', 'purple', 'rose', 'slate']
+    enum: ['blue', 'emerald', 'orange', 'purple', 'rose', 'slate', 'indigo']
   }
 }, {
   timestamps: true

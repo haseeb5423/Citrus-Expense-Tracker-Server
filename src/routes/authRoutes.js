@@ -1,6 +1,8 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { Account } from '../models/Account.js';
+import { AccountType } from '../models/AccountType.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
 import { validateRegistration, validateLogin } from '../middleware/validation.js';
@@ -43,6 +45,66 @@ router.post('/register', authLimiter, validateRegistration, asyncHandler(async (
   }
 
   const user = await User.create({ name, email, password });
+
+  // Seed default data
+  try {
+    // 1. Create Default Account Types
+    const defaultTypes = [
+      { label: 'Family', theme: 'indigo' },
+      { label: 'Salary', theme: 'emerald' },
+      { label: 'Current', theme: 'blue' },
+      { label: 'Savings', theme: 'orange' }
+    ];
+
+    await AccountType.insertMany(
+      defaultTypes.map(t => ({ user: user._id, ...t }))
+    );
+
+    // 2. Create Default Accounts (Vaults)
+    const defaultAccounts = [
+      {
+        name: 'Family Vault',
+        type: 'Family', 
+        balance: 0,
+        cardNumber: '**** **** **** 1001',
+        cardHolder: name.toUpperCase(),
+        color: 'indigo'
+      },
+      {
+        name: 'Salary Account', 
+        type: 'Salary',
+        balance: 0,
+        cardNumber: '**** **** **** 2002',
+        cardHolder: name.toUpperCase(),
+        color: 'emerald'
+      },
+      {
+        name: 'Current Account',
+        type: 'Current',
+        balance: 0,
+        cardNumber: '**** **** **** 3003',
+        cardHolder: name.toUpperCase(),
+        color: 'blue'
+      },
+      {
+        name: 'Savings Goal',
+        type: 'Savings',
+        balance: 0,
+        cardNumber: '**** **** **** 4004',
+        cardHolder: name.toUpperCase(),
+        color: 'orange'
+      }
+    ];
+
+    await Account.insertMany(
+      defaultAccounts.map(a => ({ user: user._id, ...a }))
+    );
+
+  } catch (error) {
+    console.error('Seeding error:', error);
+    // Non-blocking, proceed with registration response
+  }
+
   sendTokenResponse(user, 201, res);
 }));
 
