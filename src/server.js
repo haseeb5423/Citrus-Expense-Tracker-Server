@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import { logger } from './utils/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
@@ -56,8 +57,11 @@ app.options('*', cors(corsOptions));
    MIDDLEWARE
 ================================ */
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Compression - should be early in the chain for maximum benefit
+app.use(compression());
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Request logging
@@ -80,7 +84,11 @@ app.set('views', path.join(__dirname, '../views'));
 logger.info('Attempting MongoDB connection...');
 
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(process.env.MONGO_URI, {
+    maxPoolSize: 10, // Handle up to 10 concurrent connections
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  })
   .then(() => logger.info('✓ MongoDB Connected Successfully'))
   .catch((err) => {
     logger.error('MongoDB Connection Error:', { error: err.message });

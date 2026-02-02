@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { Account } from '../models/Account.js';
 import { Transaction } from '../models/Transaction.js';
 import { AccountType } from '../models/AccountType.js';
@@ -14,18 +15,18 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
   const skip = (parseInt(page) - 1) * parseInt(limit);
   
   const [accounts, transactions, totalTransactions, accountTypes] = await Promise.all([
-    Account.find({ user: req.user._id }).sort({ createdAt: -1 }),
+    Account.find({ user: req.user._id }).sort({ createdAt: -1 }).lean(),
     Transaction.find({ user: req.user._id })
       .sort({ date: -1 })
       .limit(parseInt(limit))
-      .skip(skip),
+      .skip(skip)
+      .lean(),
     Transaction.countDocuments({ user: req.user._id }),
-    AccountType.find({ user: req.user._id }).sort({ label: 1 })
+    AccountType.find({ user: req.user._id }).sort({ label: 1 }).lean()
   ]);
   
   res.json({ 
     accounts, 
-    transactions,
     transactions,
     accountTypes: accountTypes || [],
     pagination: {
@@ -124,7 +125,7 @@ router.post('/sync', protect, async (req, res) => {
 // Cleanup Duplicate Accounts
 router.delete('/accounts/cleanup', protect, asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const accounts = await Account.find({ user: userId }).sort({ createdAt: 1 }); // Oldest first
+  const accounts = await Account.find({ user: userId }).sort({ createdAt: 1 }).lean(); // Oldest first
   
   const grouped = {};
   accounts.forEach(acc => {
@@ -317,24 +318,41 @@ router.delete('/transactions/bulk-delete', protect, async (req, res) => {
       return res.status(400).json({ message: 'Invalid transaction IDs' });
     }
 
-    // Find all transactions to be deleted
+    // Aggregate balance changes by account for efficient batch update
     const transactions = await Transaction.find({ 
       _id: { $in: ids }, 
       user: req.user._id 
-    });
+    }).lean();
 
     if (transactions.length === 0) {
       return res.status(404).json({ message: 'No transactions found' });
     }
 
-    // Rollback account balances for each transaction
+    // Calculate balance adjustments per account
+    const balanceAdjustments = {};
     for (const tx of transactions) {
-      const account = await Account.findOne({ _id: tx.accountId, user: req.user._id });
-      if (account) {
-        if (tx.type === 'income') account.balance -= tx.amount;
-        else account.balance += tx.amount;
-        await account.save();
+      const accountId = tx.accountId.toString();
+      if (!balanceAdjustments[accountId]) {
+        balanceAdjustments[accountId] = 0;
       }
+      // Revert the effect: income was +, so we -, expense was -, so we +
+      if (tx.type === 'income') {
+        balanceAdjustments[accountId] -= tx.amount;
+      } else {
+        balanceAdjustments[accountId] += tx.amount;
+      }
+    }
+
+    // Batch update all accounts at once
+    const bulkOps = Object.entries(balanceAdjustments).map(([accountId, adjustment]) => ({
+      updateOne: {
+        filter: { _id: new mongoose.Types.ObjectId(accountId), user: req.user._id },
+        update: { $inc: { balance: adjustment } }
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Account.bulkWrite(bulkOps);
     }
 
     // Delete all transactions
@@ -354,20 +372,36 @@ router.delete('/transactions/bulk-delete', protect, async (req, res) => {
 router.delete('/transactions/delete-all', protect, async (req, res) => {
   try {
     // Find all user transactions
-    const transactions = await Transaction.find({ user: req.user._id });
+    const transactions = await Transaction.find({ user: req.user._id }).lean();
 
     if (transactions.length === 0) {
       return res.json({ message: 'No transactions to delete', deletedCount: 0 });
     }
 
-    // Rollback account balances for each transaction
+    // Calculate balance adjustments per account
+    const balanceAdjustments = {};
     for (const tx of transactions) {
-      const account = await Account.findOne({ _id: tx.accountId, user: req.user._id });
-      if (account) {
-        if (tx.type === 'income') account.balance -= tx.amount;
-        else account.balance += tx.amount;
-        await account.save();
+      const accountId = tx.accountId.toString();
+      if (!balanceAdjustments[accountId]) {
+        balanceAdjustments[accountId] = 0;
       }
+      if (tx.type === 'income') {
+        balanceAdjustments[accountId] -= tx.amount;
+      } else {
+        balanceAdjustments[accountId] += tx.amount;
+      }
+    }
+
+    // Batch update all accounts at once
+    const bulkOps = Object.entries(balanceAdjustments).map(([accountId, adjustment]) => ({
+      updateOne: {
+        filter: { _id: new mongoose.Types.ObjectId(accountId), user: req.user._id },
+        update: { $inc: { balance: adjustment } }
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Account.bulkWrite(bulkOps);
     }
 
     // Delete all transactions
