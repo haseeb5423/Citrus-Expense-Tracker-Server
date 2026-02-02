@@ -1,4 +1,4 @@
-# NexusPay Finance - Server
+# Citrus-Expense-Tracker - Server
 
 A robust RESTful API backend for the NexusPay Finance application, built with Node.js, Express, and MongoDB.
 
@@ -57,7 +57,7 @@ server/
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd nexuspay-finance/server
+   cd Citrus-Expense-Tracker/server
    ```
 
 2. **Install dependencies**
@@ -229,6 +229,4 @@ Similar process - add environment variables and deploy.
 - `label` - Type label
 - `theme` - Color theme
 
-## 📄 License
 
-MIT License - See LICENSE file for details.
