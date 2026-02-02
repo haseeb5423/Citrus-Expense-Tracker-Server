@@ -205,6 +205,61 @@ router.post('/transactions', protect, validateTransaction, asyncHandler(async (r
   res.status(201).json(transaction);
 }));
 
+// Transfer Funds - Create paired transactions
+router.post('/transfer', protect, asyncHandler(async (req, res) => {
+  const { sourceAccountId, targetAccountId, amount, date, description } = req.body;
+
+  if (!sourceAccountId || !targetAccountId || !amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid transfer details' });
+  }
+
+  if (sourceAccountId === targetAccountId) {
+    return res.status(400).json({ message: 'Cannot transfer to the same account' });
+  }
+
+  // Verify ownership
+  const [sourceAccount, targetAccount] = await Promise.all([
+    Account.findOne({ _id: sourceAccountId, user: req.user._id }),
+    Account.findOne({ _id: targetAccountId, user: req.user._id })
+  ]);
+
+  if (!sourceAccount || !targetAccount) {
+    return res.status(404).json({ message: 'One or both accounts not found' });
+  }
+
+  // Create Transactions
+  const expenseTx = await Transaction.create({
+    user: req.user._id,
+    accountId: sourceAccountId,
+    amount,
+    type: 'expense',
+    category: 'Transfer',
+    description: description || `Transfer to ${targetAccount.name}`,
+    date: date || new Date()
+  });
+
+  const incomeTx = await Transaction.create({
+    user: req.user._id,
+    accountId: targetAccountId,
+    amount,
+    type: 'income',
+    category: 'Transfer',
+    description: description || `Transfer from ${sourceAccount.name}`,
+    date: date || new Date()
+  });
+
+  // Update Balances
+  sourceAccount.balance -= Number(amount);
+  targetAccount.balance += Number(amount);
+
+  await Promise.all([sourceAccount.save(), targetAccount.save()]);
+
+  res.status(201).json({ 
+    message: 'Transfer successful',
+    transactions: [expenseTx, incomeTx]
+  });
+}));
+
 router.put('/transactions/:id', protect, async (req, res) => {
   // Updated transaction endpoint with proper validation
   // Complex logic needed to revert balance and apply new. 
