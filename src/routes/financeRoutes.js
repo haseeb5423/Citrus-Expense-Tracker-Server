@@ -109,7 +109,8 @@ router.post('/sync', protect, async (req, res) => {
            type: tx.type,
            category: tx.category,
            description: tx.description,
-           date: tx.date
+           date: tx.date,
+           balanceAt: tx.balanceAt
          });
          newTransactionsCount++;
       }
@@ -193,7 +194,8 @@ router.post('/transactions', protect, validateTransaction, asyncHandler(async (r
     return res.status(404).json({ message: 'Account not found' });
   }
   
-  const transaction = await Transaction.create({ ...req.body, user: req.user._id });
+  // Create half-baked transaction first to get the amount/type
+  const transaction = new Transaction({ ...req.body, user: req.user._id });
   
   // Update Account Balance
   if (transaction.type === 'income') {
@@ -201,7 +203,14 @@ router.post('/transactions', protect, validateTransaction, asyncHandler(async (r
   } else {
     account.balance -= transaction.amount;
   }
-  await account.save();
+  
+  // Set the captured balance
+  transaction.balanceAt = account.balance;
+  
+  await Promise.all([
+    transaction.save(),
+    account.save()
+  ]);
 
   res.status(201).json(transaction);
 }));
@@ -228,7 +237,11 @@ router.post('/transfer', protect, asyncHandler(async (req, res) => {
     return res.status(404).json({ message: 'One or both accounts not found' });
   }
 
-  // Create Transactions
+  // Update Balances
+  sourceAccount.balance -= Number(amount);
+  targetAccount.balance += Number(amount);
+
+  // Create Transactions with balance capture
   const expenseTx = await Transaction.create({
     user: req.user._id,
     accountId: sourceAccountId,
@@ -236,7 +249,8 @@ router.post('/transfer', protect, asyncHandler(async (req, res) => {
     type: 'expense',
     category: 'Transfer',
     description: description || `Transfer to ${targetAccount.name}`,
-    date: date || new Date()
+    date: date || new Date(),
+    balanceAt: sourceAccount.balance
   });
 
   const incomeTx = await Transaction.create({
@@ -246,12 +260,9 @@ router.post('/transfer', protect, asyncHandler(async (req, res) => {
     type: 'income',
     category: 'Transfer',
     description: description || `Transfer from ${sourceAccount.name}`,
-    date: date || new Date()
+    date: date || new Date(),
+    balanceAt: targetAccount.balance
   });
-
-  // Update Balances
-  sourceAccount.balance -= Number(amount);
-  targetAccount.balance += Number(amount);
 
   await Promise.all([sourceAccount.save(), targetAccount.save()]);
 

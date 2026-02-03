@@ -41,6 +41,10 @@ const transactionSchema = new mongoose.Schema({
     type: Date, 
     required: [true, 'Date is required'],
     default: Date.now
+  },
+  balanceAt: {
+    type: Number,
+    required: false
   }
 }, { timestamps: true });
 

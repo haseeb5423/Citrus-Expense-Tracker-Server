@@ -121,6 +121,11 @@ export const validateTransaction = (req, res, next) => {
     errors.push('Account ID is required');
   }
   
+  // Date validation (optional, can be empty)
+  if (req.body.date && !validator.isISO8601(req.body.date)) {
+    errors.push('Invalid date format');
+  }
+
   if (errors.length > 0) {
     return res.status(400).json({ message: 'Validation failed', errors });
   }
