@@ -124,11 +124,9 @@ process.on('unhandledRejection', (err) => {
 
 import authRoutes from './routes/authRoutes.js';
 import financeRoutes from './routes/financeRoutes.js';
-import aiRoutes from './routes/aiRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/finance', financeRoutes);
-app.use('/api/ai', aiRoutes);
 
 /* ================================
    STATUS ROUTES
