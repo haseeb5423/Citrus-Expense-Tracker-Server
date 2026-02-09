@@ -25,12 +25,6 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
     AccountType.find({ user: req.user._id }).sort({ label: 1 }).lean()
   ]);
   
-  // Edge Caching: Cache at Vercel Edge for 60s, background refresh up to 5 mins
-  res.setHeader(
-    'Cache-Control',
-    's-maxage=60, stale-while-revalidate=300'
-  );
-
   res.json({ 
     accounts, 
     transactions,

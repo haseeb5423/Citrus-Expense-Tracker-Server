@@ -133,11 +133,6 @@ router.post('/logout', (req, res) => {
 });
 
 router.get('/me', protect, asyncHandler(async (req, res) => {
-  // Edge Caching: Cache session check at Edge for performance
-  res.setHeader(
-    'Cache-Control',
-    's-maxage=60, stale-while-revalidate=300'
-  );
   res.json(req.user);
 }));
 
