@@ -78,44 +78,43 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 
 /* ================================
-   DATABASE CONNECTION
+   DATABASE CONNECTION (LAZY)
 ================================ */
 
-logger.info('Attempting MongoDB connection...');
+let cachedDb = null;
 
-mongoose
-  .connect(process.env.MONGO_URI, {
-    maxPoolSize: 10, // Handle up to 10 concurrent connections
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  })
-  .then(() => logger.info('✓ MongoDB Connected Successfully'))
-  .catch((err) => {
+export const connectDB = async () => {
+  if (cachedDb && mongoose.connection.readyState === 1) {
+    return cachedDb;
+  }
+
+  logger.info('Attempting MongoDB connection...');
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    
+    cachedDb = conn;
+    logger.info('✓ MongoDB Connected Successfully');
+    return cachedDb;
+  } catch (err) {
     logger.error('MongoDB Connection Error:', { error: err.message });
-    process.exit(1);
-  });
+    // In serverless, we don't want to exit the process, just fail the request
+    throw err;
+  }
+};
 
-mongoose.connection.on('connected', () => {
-  logger.info('Mongoose connected to database');
-});
+// Initial connection attempt (fire and forget)
+connectDB().catch(() => {});
 
 mongoose.connection.on('error', (err) => {
   logger.error('Mongoose connection error:', { error: err.message });
 });
 
-mongoose.connection.on('disconnected', () => {
-  logger.warn('Mongoose disconnected from database');
-});
-
-process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-  logger.info('Mongoose connection closed due to application termination');
-  process.exit(0);
-});
-
 process.on('unhandledRejection', (err) => {
   logger.error('Unhandled Promise Rejection:', { error: err.message, stack: err.stack });
-  process.exit(1);
 });
 
 /* ================================
