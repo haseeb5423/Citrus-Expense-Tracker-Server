@@ -2,20 +2,17 @@
 const rateLimit = new Map();
 
 const createRateLimiter = (windowMs = 15 * 60 * 1000, maxRequests = 100) => {
-  // Periodically clean old entries (every 10 minutes)
-  setInterval(() => {
+  return (req, res, next) => {
+    const identifier = req.ip || req.connection.remoteAddress;
     const now = Date.now();
+    
+    // Clean old entries
     const cleanupThreshold = now - windowMs;
     for (const [key, data] of rateLimit.entries()) {
       if (data.resetTime < cleanupThreshold) {
         rateLimit.delete(key);
       }
     }
-  }, 10 * 60 * 1000).unref(); // unref so it doesn't block process exit
-
-  return (req, res, next) => {
-    const identifier = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
     
     // Get or create rate limit data for this identifier
     if (!rateLimit.has(identifier)) {
