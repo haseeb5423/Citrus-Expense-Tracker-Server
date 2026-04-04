@@ -9,6 +9,10 @@ import compression from 'compression';
 import { logger } from './utils/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
+import dns from 'dns';
+
+// Fix for Node.js SRV resolution issue (ECONNREFUSED)
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 dotenv.config();
 
@@ -85,9 +89,10 @@ logger.info('Attempting MongoDB connection...');
 
 mongoose
   .connect(process.env.MONGO_URI, {
-    maxPoolSize: 10, // Handle up to 10 concurrent connections
+    maxPoolSize: 10,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
+    family: 4 // Force IPv4 to resolve DNS issues
   })
   .then(() => logger.info('✓ MongoDB Connected Successfully'))
   .catch((err) => {

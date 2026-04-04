@@ -32,6 +32,7 @@ const sendTokenResponse = (user, statusCode, res) => {
       name: user.name,
       email: user.email,
       avatar: user.avatar,
+      joinedAt: user.joinedAt,
       token // Optional: keep sending token in body for now, but cookie is primary
     });
 };

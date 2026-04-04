@@ -161,7 +161,13 @@ router.delete('/accounts/cleanup', protect, asyncHandler(async (req, res) => {
 
 // Accounts CRUD
 router.post('/accounts', protect, validateAccount, asyncHandler(async (req, res) => {
-  const account = await Account.create({ ...req.body, user: req.user._id });
+  // Every vault must start at 0 to ensure transaction history integrity
+  const account = await Account.create({ 
+    ...req.body, 
+    balance: 0, 
+    user: req.user._id 
+  });
+  
   res.status(201).json(account);
 }));
 
@@ -433,13 +439,40 @@ router.delete('/reset', protect, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Delete all data associated with the user
-    await Promise.all([
-      Transaction.deleteMany({ user: userId }),
-      Account.deleteMany({ user: userId })
-    ]);
+    // 1. Delete all transactions
+    await Transaction.deleteMany({ user: userId });
 
-    res.json({ message: 'All data reset successfully' });
+    // 2. Define standard vaults to preserve/re-create
+    const standardVaults = [
+      { name: 'Family Vault', type: 'Family', color: 'indigo', balance: 0 },
+      { name: 'Salary Account', type: 'Salary', color: 'emerald', balance: 0 },
+      { name: 'Current Account', type: 'Current', color: 'blue', balance: 0 },
+      { name: 'Savings Goal', type: 'Savings', color: 'orange', balance: 0 }
+    ];
+
+    // 3. Delete any vault NOT in this standard list
+    // Identification by name AND type to be safe, but usually name is enough
+    const preservedNames = standardVaults.map(v => v.name);
+    await Account.deleteMany({ 
+      user: userId, 
+      name: { $nin: preservedNames } 
+    });
+
+    // 4. For the preserved ones, reset their balance to 0
+    await Account.updateMany(
+      { user: userId, name: { $in: preservedNames } },
+      { $set: { balance: 0 } }
+    );
+
+    // 5. Ensure all 4 exist (re-create any that were manually deleted before reset)
+    for (const vault of standardVaults) {
+      const exists = await Account.findOne({ user: userId, name: vault.name });
+      if (!exists) {
+        await Account.create({ ...vault, user: userId });
+      }
+    }
+
+    res.json({ message: 'Data reset successfully. Standard vaults preserved/re-initialized.' });
   } catch (error) {
     console.error('Reset Data Error:', error);
     res.status(400).json({ message: 'Error resetting data', error: error.message });
