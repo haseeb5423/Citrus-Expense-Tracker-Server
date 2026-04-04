@@ -86,19 +86,44 @@ app.set('views', path.join(process.cwd(), 'views'));
    DATABASE CONNECTION
 ================================ */
 
-logger.info('Attempting MongoDB connection...');
+let isConnected = false;
 
-mongoose
-  .connect(process.env.MONGO_URI, {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000
-  })
-  .then(() => logger.info('✓ MongoDB Connected Successfully'))
-  .catch((err) => {
+const connectDB = async () => {
+  if (isConnected) {
+    logger.info('=> Using existing MongoDB connection');
+    return;
+  }
+
+  logger.info('=> Attempting new MongoDB connection...');
+  
+  if (!process.env.MONGO_URI) {
+    logger.error('CRITICAL: MONGO_URI is not defined in environment variables');
+    return;
+  }
+
+  try {
+    const db = await mongoose.connect(process.env.MONGO_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000, // Increased timeout
+      socketTimeoutMS: 45000,
+    });
+    
+    isConnected = db.connections[0].readyState === 1;
+    logger.info('✓ MongoDB Connected Successfully');
+  } catch (err) {
     logger.error('MongoDB Connection Error:', { error: err.message });
-    // process.exit(1); // Don't kill the process in serverless
-  });
+    // In serverless, we don't exit, we let the next request try again
+  }
+};
+
+// Initial connection attempt
+connectDB();
+
+// Middleware to ensure DB is connected before processing requests
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
 
 mongoose.connection.on('connected', () => {
   logger.info('Mongoose connected to database');
