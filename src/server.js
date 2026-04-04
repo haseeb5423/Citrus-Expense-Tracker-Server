@@ -12,7 +12,7 @@ import { apiLimiter } from './middleware/rateLimiter.js';
 import dns from 'dns';
 
 // Fix for Node.js SRV resolution issue (ECONNREFUSED)
-dns.setServers(['8.8.8.8', '1.1.1.1']);
+// dns.setServers(['8.8.8.8', '1.1.1.1']); // Commented out for Vercel compatibility
 
 dotenv.config();
 
@@ -44,7 +44,8 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    return callback(new Error('Not allowed by CORS'));
+    // Return false instead of an Error to avoid crashing the middleware
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -79,7 +80,7 @@ app.use('/api', apiLimiter);
 ================================ */
 
 app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, '../views'));
+app.set('views', path.join(process.cwd(), 'views'));
 
 /* ================================
    DATABASE CONNECTION
@@ -91,13 +92,12 @@ mongoose
   .connect(process.env.MONGO_URI, {
     maxPoolSize: 10,
     serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-    family: 4 // Force IPv4 to resolve DNS issues
+    socketTimeoutMS: 45000
   })
   .then(() => logger.info('✓ MongoDB Connected Successfully'))
   .catch((err) => {
     logger.error('MongoDB Connection Error:', { error: err.message });
-    process.exit(1);
+    // process.exit(1); // Don't kill the process in serverless
   });
 
 mongoose.connection.on('connected', () => {
@@ -173,9 +173,15 @@ app.use(errorHandler);
    SERVER START
 ================================ */
 
-app.listen(PORT, () => {
-  logger.info(`🚀 Server running on port ${PORT}`, {
-    environment: process.env.NODE_ENV || 'development',
-    port: PORT
+// 1. Export app for Vercel/Serverless
+export default app;
+
+// 2. Conditional listen (Skip in serverless environments)
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    logger.info(`🚀 Server running on port ${PORT}`, {
+      environment: process.env.NODE_ENV || 'development',
+      port: PORT
+    });
   });
-});
+}

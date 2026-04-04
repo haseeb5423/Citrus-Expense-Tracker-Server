@@ -45,78 +45,75 @@ router.post('/sync', protect, async (req, res) => {
   try {
     const accountMap = {}; // Map localId -> dbId
 
-    // 0. Sync Account Types (Prevent duplicates)
+    // 0. Sync Account Types (Bulk)
     if (accountTypes && Array.isArray(accountTypes)) {
-      for (const type of accountTypes) {
-        // Skip default types (usually those have specific IDs or handled by client logic, 
-        // but here we just check label duplication)
-        const exists = await AccountType.findOne({ user: userId, label: type.label });
-        if (!exists) {
-          try {
-             await AccountType.create({
-               user: userId,
-               label: type.label,
-               theme: type.theme
-             });
-          } catch (e) {
-             // Ignore duplicate key errors just in case race condition
-             console.log("Skipping duplicate type:", type.label);
-          }
-        }
+      const existingTypes = await AccountType.find({ user: userId }).lean();
+      const existingLabels = new Set(existingTypes.map(t => t.label));
+      
+      const newTypes = accountTypes
+        .filter(t => !existingLabels.has(t.label))
+        .map(t => ({ user: userId, label: t.label, theme: t.theme }));
+
+      if (newTypes.length > 0) {
+        await AccountType.insertMany(newTypes, { ordered: false }).catch(() => {});
       }
     }
 
-    // 1. Create or Find Accounts
-    for (const acc of accounts) {
-      // Check if account with same name already exists to prevent duplicates
-      let targetAccount = await Account.findOne({ user: userId, name: acc.name });
+    // 1. Create or Find Accounts (Bulk)
+    const existingAccounts = await Account.find({ user: userId }).lean();
+    const existingAccountNames = new Map(existingAccounts.map(a => [a.name, a._id]));
+    
+    const newAccountsToCreate = [];
+    const localToDbMap = new Map(); // localId -> dbId
 
-      if (!targetAccount) {
-        targetAccount = await Account.create({
-            user: userId,
-            name: acc.name,
-            balance: acc.balance,
-            type: acc.type,
-            color: acc.color,
-            cardNumber: acc.cardNumber,
-            cardHolder: acc.cardHolder
+    for (const acc of accounts) {
+      if (existingAccountNames.has(acc.name)) {
+        localToDbMap.set(acc.id, existingAccountNames.get(acc.name));
+      } else {
+        newAccountsToCreate.push({
+          user: userId,
+          name: acc.name,
+          balance: acc.balance,
+          type: acc.type,
+          color: acc.color,
+          cardNumber: acc.cardNumber,
+          cardHolder: acc.cardHolder
         });
       }
-      // If it exists, we might optionally update it, but for sync we usually just want to map IDs.
-      // We can update the balance/details if the local one is "newer", but simpler to just link.
-      
-      accountMap[acc.id] = targetAccount._id;
     }
 
-    // 2. Create Transactions with mapped Account IDs
-    let newTransactionsCount = 0;
-    for (const tx of transactions) {
-      const realAccountId = accountMap[tx.accountId];
-      if (realAccountId) {
-         // Prevent duplicate transaction sync if possible (optional but good)
-         // Assuming client might send same txs.
-         // A simple check is looking for matching date + amount + description + account
-         // This can be slow for many txs. For now, we follow standard sync which might blindly add.
-         // But the user complained about duplicates. Let's try to be smarter if possible?
-         // The user specifically complained about "initial vaults accounts multiples".
-         // So likely the account duplication is the main annoyance.
-         // We will skip transaction deduplication for now to keep it safe, unless requested.
-         
-         await Transaction.create({
-           user: userId,
-           accountId: realAccountId,
-           amount: tx.amount,
-           type: tx.type,
-           category: tx.category,
-           description: tx.description,
-           date: tx.date,
-           balanceAt: tx.balanceAt
-         });
-         newTransactionsCount++;
-      }
+    if (newAccountsToCreate.length > 0) {
+      const savedAccounts = await Account.insertMany(newAccountsToCreate);
+      savedAccounts.forEach(sa => {
+        // Find corresponding local account to map ID
+        const localAcc = accounts.find(a => a.name === sa.name);
+        if (localAcc) localToDbMap.set(localAcc.id, sa._id);
+      });
     }
 
-    res.json({ message: 'Sync successful', syncedAccounts: Object.keys(accountMap).length, newTransactions: newTransactionsCount });
+    // 2. Create Transactions (Bulk)
+    const transactionsToInsert = transactions
+      .filter(tx => localToDbMap.has(tx.accountId))
+      .map(tx => ({
+        user: userId,
+        accountId: localToDbMap.get(tx.accountId),
+        amount: tx.amount,
+        type: tx.type,
+        category: tx.category,
+        description: tx.description,
+        date: tx.date,
+        balanceAt: tx.balanceAt
+      }));
+
+    if (transactionsToInsert.length > 0) {
+      await Transaction.insertMany(transactionsToInsert);
+    }
+
+    res.json({ 
+      message: 'Sync successful', 
+      syncedAccounts: accounts.length, 
+      newTransactions: transactionsToInsert.length 
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Sync failed', error: error.message });
