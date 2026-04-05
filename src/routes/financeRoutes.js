@@ -13,7 +13,7 @@ const router = express.Router();
 router.get('/data', protect, asyncHandler(async (req, res) => {
   const { page = 1, limit = 100 } = req.query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
-  
+
   const [accounts, transactions, totalTransactions, accountTypes] = await Promise.all([
     Account.find({ user: req.user._id }).sort({ createdAt: -1 }).lean(),
     Transaction.find({ user: req.user._id })
@@ -24,9 +24,9 @@ router.get('/data', protect, asyncHandler(async (req, res) => {
     Transaction.countDocuments({ user: req.user._id }),
     AccountType.find({ user: req.user._id }).sort({ label: 1 }).lean()
   ]);
-  
-  res.json({ 
-    accounts, 
+
+  res.json({
+    accounts,
     transactions,
     accountTypes: accountTypes || [],
     pagination: {
@@ -53,14 +53,14 @@ router.post('/sync', protect, async (req, res) => {
         const exists = await AccountType.findOne({ user: userId, label: type.label });
         if (!exists) {
           try {
-             await AccountType.create({
-               user: userId,
-               label: type.label,
-               theme: type.theme
-             });
+            await AccountType.create({
+              user: userId,
+              label: type.label,
+              theme: type.theme
+            });
           } catch (e) {
-             // Ignore duplicate key errors just in case race condition
-             console.log("Skipping duplicate type:", type.label);
+            // Ignore duplicate key errors just in case race condition
+            console.log("Skipping duplicate type:", type.label);
           }
         }
       }
@@ -73,18 +73,18 @@ router.post('/sync', protect, async (req, res) => {
 
       if (!targetAccount) {
         targetAccount = await Account.create({
-            user: userId,
-            name: acc.name,
-            balance: acc.balance,
-            type: acc.type,
-            color: acc.color,
-            cardNumber: acc.cardNumber,
-            cardHolder: acc.cardHolder
+          user: userId,
+          name: acc.name,
+          balance: acc.balance,
+          type: acc.type,
+          color: acc.color,
+          cardNumber: acc.cardNumber,
+          cardHolder: acc.cardHolder
         });
       }
       // If it exists, we might optionally update it, but for sync we usually just want to map IDs.
       // We can update the balance/details if the local one is "newer", but simpler to just link.
-      
+
       accountMap[acc.id] = targetAccount._id;
     }
 
@@ -93,26 +93,26 @@ router.post('/sync', protect, async (req, res) => {
     for (const tx of transactions) {
       const realAccountId = accountMap[tx.accountId];
       if (realAccountId) {
-         // Prevent duplicate transaction sync if possible (optional but good)
-         // Assuming client might send same txs.
-         // A simple check is looking for matching date + amount + description + account
-         // This can be slow for many txs. For now, we follow standard sync which might blindly add.
-         // But the user complained about duplicates. Let's try to be smarter if possible?
-         // The user specifically complained about "initial vaults accounts multiples".
-         // So likely the account duplication is the main annoyance.
-         // We will skip transaction deduplication for now to keep it safe, unless requested.
-         
-         await Transaction.create({
-           user: userId,
-           accountId: realAccountId,
-           amount: tx.amount,
-           type: tx.type,
-           category: tx.category,
-           description: tx.description,
-           date: tx.date,
-           balanceAt: tx.balanceAt
-         });
-         newTransactionsCount++;
+        // Prevent duplicate transaction sync if possible (optional but good)
+        // Assuming client might send same txs.
+        // A simple check is looking for matching date + amount + description + account
+        // This can be slow for many txs. For now, we follow standard sync which might blindly add.
+        // But the user complained about duplicates. Let's try to be smarter if possible?
+        // The user specifically complained about "initial vaults accounts multiples".
+        // So likely the account duplication is the main annoyance.
+        // We will skip transaction deduplication for now to keep it safe, unless requested.
+
+        await Transaction.create({
+          user: userId,
+          accountId: realAccountId,
+          amount: tx.amount,
+          type: tx.type,
+          category: tx.category,
+          description: tx.description,
+          date: tx.date,
+          balanceAt: tx.balanceAt
+        });
+        newTransactionsCount++;
       }
     }
 
@@ -127,7 +127,7 @@ router.post('/sync', protect, async (req, res) => {
 router.delete('/accounts/cleanup', protect, asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const accounts = await Account.find({ user: userId }).sort({ createdAt: 1 }).lean(); // Oldest first
-  
+
   const grouped = {};
   accounts.forEach(acc => {
     if (!grouped[acc.name]) grouped[acc.name] = [];
@@ -143,31 +143,31 @@ router.delete('/accounts/cleanup', protect, asyncHandler(async (req, res) => {
       // Keep the first one (oldest), delete the rest
       const [keep, ...remove] = group;
       const removeIds = remove.map(a => a._id);
-      
+
       await Account.deleteMany({ _id: { $in: removeIds } });
       await Transaction.deleteMany({ accountId: { $in: removeIds } }); // Cascade delete transactions of duplicates
-      
+
       deletedCount += remove.length;
       deletedNames.push(name);
     }
   }
 
-  res.json({ 
-    message: 'Cleanup successful', 
-    deletedCount, 
-    affectedAccounts: deletedNames 
+  res.json({
+    message: 'Cleanup successful',
+    deletedCount,
+    affectedAccounts: deletedNames
   });
 }));
 
 // Accounts CRUD
 router.post('/accounts', protect, validateAccount, asyncHandler(async (req, res) => {
   // Every vault must start at 0 to ensure transaction history integrity
-  const account = await Account.create({ 
-    ...req.body, 
-    balance: 0, 
-    user: req.user._id 
+  const account = await Account.create({
+    ...req.body,
+    balance: 0,
+    user: req.user._id
   });
-  
+
   res.status(201).json(account);
 }));
 
@@ -199,20 +199,20 @@ router.post('/transactions', protect, validateTransaction, asyncHandler(async (r
   if (!account) {
     return res.status(404).json({ message: 'Account not found' });
   }
-  
+
   // Create half-baked transaction first to get the amount/type
   const transaction = new Transaction({ ...req.body, user: req.user._id });
-  
+
   // Update Account Balance
   if (transaction.type === 'income') {
     account.balance += transaction.amount;
   } else {
     account.balance -= transaction.amount;
   }
-  
+
   // Set the captured balance
   transaction.balanceAt = account.balance;
-  
+
   await Promise.all([
     transaction.save(),
     account.save()
@@ -272,7 +272,7 @@ router.post('/transfer', protect, asyncHandler(async (req, res) => {
 
   await Promise.all([sourceAccount.save(), targetAccount.save()]);
 
-  res.status(201).json({ 
+  res.status(201).json({
     message: 'Transfer successful',
     transactions: [expenseTx, incomeTx]
   });
@@ -290,11 +290,11 @@ router.put('/transactions/:id', protect, async (req, res) => {
     if (!oldTx) return res.status(404).json({ message: 'Transaction not found' });
 
     const account = await Account.findOne({ _id: oldTx.accountId, user: req.user._id });
-    
+
     // Revert old effect
     if (account) {
-        if (oldTx.type === 'income') account.balance -= oldTx.amount;
-        else account.balance += oldTx.amount;
+      if (oldTx.type === 'income') account.balance -= oldTx.amount;
+      else account.balance += oldTx.amount;
     }
 
     // Update Tx
@@ -304,19 +304,19 @@ router.put('/transactions/:id', protect, async (req, res) => {
     // Assuming same account for now or re-fetch if changed.
     // If account changed, we need to handle that.
     // Let's assume accountId can change.
-    
+
     let targetAccount = account;
     if (req.body.accountId && req.body.accountId !== oldTx.accountId.toString()) {
-        targetAccount = await Account.findOne({ _id: req.body.accountId, user: req.user._id });
+      targetAccount = await Account.findOne({ _id: req.body.accountId, user: req.user._id });
     }
 
     if (targetAccount) {
-        if (updatedTx.type === 'income') targetAccount.balance += updatedTx.amount;
-        else targetAccount.balance -= updatedTx.amount;
-        await targetAccount.save();
-        if (account && account.id !== targetAccount.id) await account.save();
+      if (updatedTx.type === 'income') targetAccount.balance += updatedTx.amount;
+      else targetAccount.balance -= updatedTx.amount;
+      await targetAccount.save();
+      if (account && account.id !== targetAccount.id) await account.save();
     } else if (account) {
-        await account.save(); // Just save the revert
+      await account.save(); // Just save the revert
     }
 
     res.json(updatedTx);
@@ -330,15 +330,15 @@ router.put('/transactions/:id', protect, async (req, res) => {
 router.delete('/transactions/bulk-delete', protect, async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ message: 'Invalid transaction IDs' });
     }
 
     // Aggregate balance changes by account for efficient batch update
-    const transactions = await Transaction.find({ 
-      _id: { $in: ids }, 
-      user: req.user._id 
+    const transactions = await Transaction.find({
+      _id: { $in: ids },
+      user: req.user._id
     }).lean();
 
     if (transactions.length === 0) {
@@ -375,9 +375,9 @@ router.delete('/transactions/bulk-delete', protect, async (req, res) => {
     // Delete all transactions
     await Transaction.deleteMany({ _id: { $in: ids }, user: req.user._id });
 
-    res.json({ 
-      message: 'Transactions deleted successfully', 
-      deletedCount: transactions.length 
+    res.json({
+      message: 'Transactions deleted successfully',
+      deletedCount: transactions.length
     });
   } catch (error) {
     console.error('Bulk Delete Error:', error);
@@ -424,9 +424,9 @@ router.delete('/transactions/delete-all', protect, async (req, res) => {
     // Delete all transactions
     const result = await Transaction.deleteMany({ user: req.user._id });
 
-    res.json({ 
-      message: 'All transactions deleted successfully', 
-      deletedCount: result.deletedCount 
+    res.json({
+      message: 'All transactions deleted successfully',
+      deletedCount: result.deletedCount
     });
   } catch (error) {
     console.error('Delete All Error:', error);
@@ -445,17 +445,17 @@ router.delete('/reset', protect, async (req, res) => {
     // 2. Define standard vaults to preserve/re-create
     const standardVaults = [
       { name: 'Family Vault', type: 'Family', color: 'indigo', balance: 0 },
-      { name: 'Salary Account', type: 'Salary', color: 'emerald', balance: 0 },
-      { name: 'Current Account', type: 'Current', color: 'blue', balance: 0 },
-      { name: 'Savings Goal', type: 'Savings', color: 'orange', balance: 0 }
+      { name: 'Salary Vault', type: 'Salary', color: 'emerald', balance: 0 },
+      { name: 'Current Vault', type: 'Current', color: 'blue', balance: 0 },
+      { name: 'Savings Vault', type: 'Savings', color: 'orange', balance: 0 }
     ];
 
     // 3. Delete any vault NOT in this standard list
     // Identification by name AND type to be safe, but usually name is enough
     const preservedNames = standardVaults.map(v => v.name);
-    await Account.deleteMany({ 
-      user: userId, 
-      name: { $nin: preservedNames } 
+    await Account.deleteMany({
+      user: userId,
+      name: { $nin: preservedNames }
     });
 
     // 4. For the preserved ones, reset their balance to 0
@@ -483,7 +483,7 @@ router.delete('/reset', protect, async (req, res) => {
 // Account Types CRUD
 router.post('/account-types', protect, asyncHandler(async (req, res) => {
   const { label, theme } = req.body;
-  
+
   // Check duplicate
   const exists = await AccountType.findOne({ user: req.user._id, label });
   if (exists) {
@@ -495,7 +495,7 @@ router.post('/account-types', protect, asyncHandler(async (req, res) => {
     label,
     theme
   });
-  
+
   res.status(201).json(accountType);
 }));
 
@@ -511,12 +511,12 @@ router.delete('/transactions/:id', protect, async (req, res) => {
   try {
     const tx = await Transaction.findOneAndDelete({ _id: req.params.id, user: req.user._id });
     if (tx) {
-        const account = await Account.findOne({ _id: tx.accountId, user: req.user._id });
-        if (account) {
-            if (tx.type === 'income') account.balance -= tx.amount;
-            else account.balance += tx.amount;
-            await account.save();
-        }
+      const account = await Account.findOne({ _id: tx.accountId, user: req.user._id });
+      if (account) {
+        if (tx.type === 'income') account.balance -= tx.amount;
+        else account.balance += tx.amount;
+        await account.save();
+      }
     }
     res.json({ message: 'Transaction deleted' });
   } catch (error) {

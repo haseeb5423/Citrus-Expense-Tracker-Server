@@ -65,14 +65,14 @@ router.post('/register', authLimiter, validateRegistration, asyncHandler(async (
     const defaultAccounts = [
       {
         name: 'Family Vault',
-        type: 'Family', 
+        type: 'Family',
         balance: 0,
         cardNumber: '**** **** **** 1001',
         cardHolder: name.toUpperCase(),
         color: 'indigo'
       },
       {
-        name: 'Salary Account', 
+        name: 'Salary Vault',
         type: 'Salary',
         balance: 0,
         cardNumber: '**** **** **** 2002',
@@ -80,7 +80,7 @@ router.post('/register', authLimiter, validateRegistration, asyncHandler(async (
         color: 'emerald'
       },
       {
-        name: 'Current Account',
+        name: 'Current Vault',
         type: 'Current',
         balance: 0,
         cardNumber: '**** **** **** 3003',
@@ -88,7 +88,7 @@ router.post('/register', authLimiter, validateRegistration, asyncHandler(async (
         color: 'blue'
       },
       {
-        name: 'Savings Goal',
+        name: 'Savings Vault',
         type: 'Savings',
         balance: 0,
         cardNumber: '**** **** **** 4004',
@@ -113,7 +113,7 @@ router.post('/login', authLimiter, validateLogin, asyncHandler(async (req, res) 
   const { email, password } = req.body;
 
   const user = await User.findOne({ email }).select('+password');
-  
+
   if (!user || !(await user.matchPassword(password))) {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
