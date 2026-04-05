@@ -16,10 +16,11 @@ export const protect = async (req, res, next) => {
       req.user = await User.findById(decoded.id).select('-password');
       next();
     } catch (error) {
-      console.error(error);
+      console.error('JWT Verification Failed:', error.message);
       res.status(401).json({ message: 'Not authorized, token failed' });
     }
   } else {
+    console.warn('No token found in cookies or headers');
     res.status(401).json({ message: 'Not authorized, no token' });
   }
 };

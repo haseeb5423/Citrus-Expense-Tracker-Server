@@ -12,7 +12,14 @@ import { apiLimiter } from './middleware/rateLimiter.js';
 import dns from 'dns';
 
 // Fix for Node.js SRV resolution issue (ECONNREFUSED)
-dns.setServers(['8.8.8.8', '1.1.1.1']); // Cloudflare and Google DNS for SRV resolution
+// Fix for Node.js SRV resolution issue (ECONNREFUSED) in local development
+if (process.env.NODE_ENV === 'development' || !process.env.VERCEL) {
+  try {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  } catch (err) {
+    // Non-blocking fallback
+  }
+}
 
 dotenv.config();
 
