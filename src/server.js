@@ -12,7 +12,7 @@ import { apiLimiter } from './middleware/rateLimiter.js';
 import dns from 'dns';
 
 // Fix for Node.js SRV resolution issue (ECONNREFUSED)
-// dns.setServers(['8.8.8.8', '1.1.1.1']); // Commented out for Vercel compatibility
+dns.setServers(['8.8.8.8', '1.1.1.1']); // Cloudflare and Google DNS for SRV resolution
 
 dotenv.config();
 
@@ -155,7 +155,7 @@ app.get('/health', (req, res) => {
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     environment: process.env.NODE_ENV || 'development'
   };
-  
+
   res.status(200).json(health);
 });
 
