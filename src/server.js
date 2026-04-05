@@ -99,8 +99,8 @@ logger.info('Attempting MongoDB connection...');
 mongoose
   .connect(process.env.MONGO_URI, {
     maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000
+    serverSelectionTimeoutMS: 30000, // 30 seconds
+    socketTimeoutMS: 60000, // 60 seconds
   })
   .then(() => logger.info('✓ MongoDB Connected Successfully'))
   .catch((err) => {
@@ -165,6 +165,36 @@ app.get('/health', (req, res) => {
   };
 
   res.status(200).json(health);
+});
+
+// DB Diagnostic Route
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const status = mongoose.connection.readyState;
+    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+
+    // Attempt a simple ping if connected
+    let ping = null;
+    if (status === 1) {
+      const start = Date.now();
+      await mongoose.connection.db.admin().ping();
+      ping = `${Date.now() - start}ms`;
+    }
+
+    res.json({
+      status: 'ok',
+      connection: states[status],
+      ping,
+      mongodb_uri_set: !!process.env.MONGO_URI,
+      env: process.env.NODE_ENV
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      message: err.message,
+      connection_state: mongoose.connection.readyState
+    });
+  }
 });
 
 /* ================================
