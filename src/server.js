@@ -40,6 +40,7 @@ const allowedOrigins = [
   'http://localhost:3001',
   'https://citrus-expense-tracker.web.app',
   'https://citrus-expense-tracker.firebaseapp.com',
+  'https://citrus-expense-tracker.vercel.app',
 ];
 
 const corsOptions = {
