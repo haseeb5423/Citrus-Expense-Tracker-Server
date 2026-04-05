@@ -41,6 +41,8 @@ const allowedOrigins = [
   'https://citrus-expense-tracker.web.app',
   'https://citrus-expense-tracker.firebaseapp.com',
   'https://citrus-expense-tracker.vercel.app',
+  'https://citrus-expense.web.app',
+  'https://citrus-expense.firebaseapp.com',
 ];
 
 const corsOptions = {
